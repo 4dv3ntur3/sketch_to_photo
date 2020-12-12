@@ -1,4 +1,4 @@
-# sketch_to_photo: sketch to photo using GAN
+# sketch to photo using GAN
 
 
 ### save file as npy, npz
