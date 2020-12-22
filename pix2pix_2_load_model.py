@@ -19,11 +19,11 @@ def load_image(filename, size=(256,256)):
    return pixels
 
 # load source image
-src_image = load_image('./test_berry.jpg')
+src_image = load_image('./test_bbp/bbbb.jpg')
 # print('Loaded', src_image.shape)
 # pyplot.imshow(src_image)
 # load model
-model = load_model('./model_039000.h5')
+model = load_model('./model_061650.h5')
 # generate image from source
 gen_image = model.predict(src_image)
 # scale from [-1,1] to [0,1]

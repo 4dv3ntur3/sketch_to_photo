@@ -13,8 +13,7 @@ for i in range(len(a)):
 
     sketch_idx.append(c)
 
-print(len(sketch_idx)) #4188
-
+print(len(sketch_idx)) #6580 (berry + pot + bear)
 
 
 
@@ -47,8 +46,8 @@ for i, idx in (enumerate(sketch_idx)):
 
 
 
-print(sketch.shape) #(4440, 256, 256, 3)
-print(photo.shape) #(4440, 256, 256, 3)
+print(sketch.shape) 
+print(photo.shape) 
 
 print(photo[0])
 print("===============================")
@@ -62,8 +61,8 @@ if(np.array_equal(photo[0], photo[1]) == True):
 from numpy import savez_compressed
 
 # sketch: X, photo: Y
-np.save('./data/sketch_berry_bear.npy', arr=sketch)
-np.save('./data/photo_berry_bear.npy', arr=photo)
+np.save('./data/berry_bear_pot_car.npy', arr=sketch)
+np.save('./data/berry_bear_pot_car.npy', arr=photo)
 
-filename = 'berry_bear.npz'
+filename = 'berry_bear_pot_car.npz'
 np.savez_compressed(filename, sketch, photo)

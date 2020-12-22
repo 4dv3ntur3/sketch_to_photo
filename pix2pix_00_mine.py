@@ -8,6 +8,9 @@ from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose
 from tensorflow.keras.layers import Activation, LeakyReLU
 from tensorflow.keras.layers import Concatenate, Dropout, BatchNormalization
 
+from tensorflow.keras.layers import Reshape, UpSampling2D
+
+
 import matplotlib.pyplot as plt
 
 
@@ -21,8 +24,8 @@ def load_data(filename):
 	sketch, photo = data['arr_0'], data['arr_1']
 
 	# scale: [0,255] -> [-1,1] 
-	sketch = (sketch - 127.5) / 127.5
-	photo = (photo - 127.5) / 127.5
+	sketch = ((sketch - 127.5) / 127.5).astype('float32') #Memory Error: float64 -> float32
+	photo = ((photo - 127.5) / 127.5).astype('float32')
 
 	return [sketch, photo]
 
@@ -36,6 +39,7 @@ def discriminator(image_shape):
 
 	src = Input(shape=image_shape)
 	target = Input(shape=image_shape)
+
 	merged = Concatenate()([src, target]) #input merge 
 
 	d = Conv2D(64, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(merged)
@@ -53,6 +57,7 @@ def discriminator(image_shape):
 	d = BatchNormalization()(d)
 	d = LeakyReLU(alpha=0.2)(d)
 
+	# 병목 현상 방지 layer
 	d = Conv2D(512, (4,4), padding='same', kernel_initializer=init)(d)
 	d = BatchNormalization()(d)
 	d = LeakyReLU(alpha=0.2)(d)
@@ -127,7 +132,7 @@ def generator(image_shape=(256,256,3)):
 	image_in = Input(shape=image_shape)
 
 	# Encoder
-	e1 = encoder_layer(image_in, 64, batchnorm=False)
+	e1 = encoder_layer(image_in, 64, batchnorm=False) #input layer
 	e2 = encoder_layer(e1, 128)
 	e3 = encoder_layer(e2, 256)
 	e4 = encoder_layer(e3, 512)
@@ -150,13 +155,20 @@ def generator(image_shape=(256,256,3)):
 
 	# output 
 	g = Conv2DTranspose(3, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(d7)
+
+	# g = Reshape((256, 256, 32))(d7)
+
+	# g = UpSampling2D()(g)
+
+	# g = Conv2D(3, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(g)
+
+
 	image_out = Activation('tanh')(g) 
 
 	# 모델 정의
 	model = Model(image_in, image_out)
 	return model
  
-
 
 # GAN
 def gan(g_model, d_model, image_shape):
@@ -190,7 +202,7 @@ def generate_real(dataset, n_batch, patch_shape):
 	sketch, photo = dataset
 
 	# choose random instances
-	ix = np.randint(0, sketch.shape[0], n_batch)
+	ix = np.random.randint(0, sketch.shape[0], n_batch)
 
 	# retrieve selected images
 	sketch, photo = sketch[ix], photo[ix]
@@ -257,6 +269,9 @@ def check_progress(step, g_model, dataset, n_samples=3):
 	print('>Saved: %s and %s' % (filename1, filename2))
 
 
+
+
+
 # 3. 훈련 
 def train(d_model, g_model, gan_model, dataset, n_epochs=150, n_batch=16):
 
@@ -298,16 +313,20 @@ def train(d_model, g_model, gan_model, dataset, n_epochs=150, n_batch=16):
 
 # 호출
 #1. 데이터
-dataset = load_data('flower_berry.npz')
-print('Loaded', dataset[0].shape, dataset[1].shape)
+dataset = load_data('berry_bear_pot_car.npz')
+print('Loaded', dataset[0].shape, dataset[1].shape) #Loaded (9148, 256, 256, 3) (9148, 256, 256, 3)
 
 # sketch와 photo의 shape
-image_shape = dataset[0].shape[1:]
+image_shape = dataset[0].shape[1:] 
+image_shape = (256, 256, 3)
+
+# print(image_shape) #(256, 256, 3)
 
 #2. 모델
 d_model = discriminator(image_shape)
 g_model = generator(image_shape)
 gan_model = gan(g_model, d_model, image_shape)
+
 
 #3. 컴파일 및 훈련 
 train(d_model, g_model, gan_model, dataset)

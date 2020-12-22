@@ -29,23 +29,23 @@ def define_discriminator(image_shape):
 	merged = Concatenate()([in_src_image, in_target_image])
 	# C64
 	d = Conv2D(64, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(merged)
-	d = LeakyReLU(alpha=0.2)(d)
+	d = Activation('swish')(d)
 	# C128
 	d = Conv2D(128, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(d)
 	d = BatchNormalization()(d)
-	d = LeakyReLU(alpha=0.2)(d)
+	d = Activation('swish')(d)
 	# C256
 	d = Conv2D(256, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(d)
 	d = BatchNormalization()(d)
-	d = LeakyReLU(alpha=0.2)(d)
+	d = Activation('swish')(d)
 	# C512
 	d = Conv2D(512, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(d)
 	d = BatchNormalization()(d)
-	d = LeakyReLU(alpha=0.2)(d)
+	d = Activation('swish')(d)
 	# second last output layer
 	d = Conv2D(512, (4,4), padding='same', kernel_initializer=init)(d)
 	d = BatchNormalization()(d)
-	d = LeakyReLU(alpha=0.2)(d)
+	d = Activation('swish')(d)
 	# patch output
 	d = Conv2D(1, (4,4), padding='same', kernel_initializer=init)(d)
 	patch_out = Activation('sigmoid')(d)
@@ -111,9 +111,11 @@ def define_generator(image_shape=(256,256,3)):
 	d5 = decoder_block(d4, e3, 256, dropout=False)
 	d6 = decoder_block(d5, e2, 128, dropout=False)
 	d7 = decoder_block(d6, e1, 64, dropout=False)
+	
 	# output
 	g = Conv2DTranspose(3, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(d7)
 	out_image = Activation('tanh')(g) 
+
 	# define model
 	model = Model(in_image, out_image)
 	return model
@@ -179,8 +181,6 @@ def summarize_performance(step, g_model, dataset, n_samples=3):
 	X_realB = (X_realB + 1) / 2.0
 	X_fakeB = (X_fakeB + 1) / 2.0
 
-
-    
 	# plot real source images
 	for i in range(n_samples):
 		pyplot.subplot(3, n_samples, 1 + i)
@@ -206,7 +206,7 @@ def summarize_performance(step, g_model, dataset, n_samples=3):
 	print('>Saved: %s and %s' % (filename1, filename2))
  
 # train pix2pix models
-def train(d_model, g_model, gan_model, dataset, n_epochs=150, n_batch=16):
+def train(d_model, g_model, gan_model, dataset, n_epochs=1, n_batch=32):
 	# determine the output square shape of the discriminator
 	n_patch = d_model.output_shape[1]
 	# unpack dataset
@@ -215,26 +215,68 @@ def train(d_model, g_model, gan_model, dataset, n_epochs=150, n_batch=16):
 	bat_per_epo = int(len(trainA) / n_batch)
 	# calculate the number of training iterations
 	n_steps = bat_per_epo * n_epochs
+
+	print("iterations: ", n_steps)
+
+	d_loss1_list = []
+	d_loss2_list = []
+	g_loss_list = []
+
 	# manually enumerate epochs
 	for i in range(n_steps):
+    		
 		# select a batch of real samples
 		[X_realA, X_realB], y_real = generate_real_samples(dataset, n_batch, n_patch)
-		# generate a batch of fake samples
+
+		# 
 		X_fakeB, y_fake = generate_fake_samples(g_model, X_realA, n_patch)
+
 		# update discriminator for real samples
 		d_loss1 = d_model.train_on_batch([X_realA, X_realB], y_real)
+		d_loss1_list.append(d_loss1)
+
 		# update discriminator for generated samples
 		d_loss2 = d_model.train_on_batch([X_realA, X_fakeB], y_fake)
+		d_loss2_list.append(d_loss2)
+
 		# update the generator
 		g_loss, _, _ = gan_model.train_on_batch(X_realA, [y_real, X_realB])
+		g_loss_list.append(g_loss)
+
 		# summarize performance
 		print('>%d, d1[%.3f] d2[%.3f] g[%.3f]' % (i+1, d_loss1, d_loss2, g_loss))
+
 		# summarize model performance
 		if (i+1) % (bat_per_epo * 10) == 0:
 			summarize_performance(i, g_model, dataset)
- 
+
+
+	#loss plot
+	import matplotlib.pyplot as plt
+
+	x_axis = range(0, n_steps)
+	fig, ax = plt.subplots()
+	ax.plot(x_axis, d_loss1_list, label="d_loss1")
+	ax.plot(x_axis, d_loss2_list, label="d_loss2")
+
+	ax.legend()
+	plt.ylabel("Loss")
+	plt.xlabel("Iteration")
+	plt.title("GAN Loss")
+	plt.show()
+
+	fig,ax = plt.subplots()
+	ax.plot(x_axis, g_loss_list, label="g_loss")
+
+	ax.legend()
+	plt.ylabel("Loss")
+	plt.xlabel("Iteration")
+	plt.title("GAN Loss")
+	plt.show()
+
+
 # load image data
-dataset = load_real_samples('berry_bear.npz')
+dataset = load_real_samples('./data/berry_bear.npz')
 print('Loaded', dataset[0].shape, dataset[1].shape)
 # Loaded (4164, 256, 256, 3) (4164, 256, 256, 3)
 # define input shape based on the loaded dataset
@@ -248,15 +290,156 @@ gan_model = define_gan(g_model, d_model, image_shape)
 train(d_model, g_model, gan_model, dataset)
 
 
-print("============== 판별자 ================")
-d_model.summary()
-print("output shape: ", d_model.output_shape[1]) #output shape:  (None, 16, 16, 1)
-
-print("============== 생성기 ================")
-g_model.summary()
-
-print("=============== GAN =================")
-gan_model.summary()
 
 
 
+
+
+# print("============== 판별자 ================")
+# d_model.summary()
+# print("output shape: ", d_model.output_shape[1]) #output shape:  (None, 16, 16, 1)
+
+# print("============== 생성기 ================")
+# g_model.summary()
+
+# print("=============== GAN =================")
+# gan_model.summary()
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
+============== 생성기 ================
+Model: "functional_3"
+__________________________________________________________________________________________________
+Layer (type)                    Output Shape         Param #     Connected to
+==================================================================================================
+input_3 (InputLayer)            [(None, 256, 256, 3) 0
+__________________________________________________________________________________________________
+conv2d_6 (Conv2D)               (None, 128, 128, 64) 3136        input_3[0][0]
+__________________________________________________________________________________________________
+leaky_re_lu_5 (LeakyReLU)       (None, 128, 128, 64) 0           conv2d_6[0][0]
+__________________________________________________________________________________________________
+conv2d_7 (Conv2D)               (None, 64, 64, 128)  131200      leaky_re_lu_5[0][0]
+__________________________________________________________________________________________________
+batch_normalization_4 (BatchNor (None, 64, 64, 128)  512         conv2d_7[0][0]
+__________________________________________________________________________________________________
+leaky_re_lu_6 (LeakyReLU)       (None, 64, 64, 128)  0           batch_normalization_4[0][0]
+__________________________________________________________________________________________________
+conv2d_8 (Conv2D)               (None, 32, 32, 256)  524544      leaky_re_lu_6[0][0]
+__________________________________________________________________________________________________
+batch_normalization_5 (BatchNor (None, 32, 32, 256)  1024        conv2d_8[0][0]
+__________________________________________________________________________________________________
+leaky_re_lu_7 (LeakyReLU)       (None, 32, 32, 256)  0           batch_normalization_5[0][0]
+__________________________________________________________________________________________________
+conv2d_9 (Conv2D)               (None, 16, 16, 512)  2097664     leaky_re_lu_7[0][0]
+__________________________________________________________________________________________________
+batch_normalization_6 (BatchNor (None, 16, 16, 512)  2048        conv2d_9[0][0]
+__________________________________________________________________________________________________
+leaky_re_lu_8 (LeakyReLU)       (None, 16, 16, 512)  0           batch_normalization_6[0][0]
+__________________________________________________________________________________________________
+conv2d_10 (Conv2D)              (None, 8, 8, 512)    4194816     leaky_re_lu_8[0][0]
+__________________________________________________________________________________________________
+batch_normalization_7 (BatchNor (None, 8, 8, 512)    2048        conv2d_10[0][0]
+__________________________________________________________________________________________________
+leaky_re_lu_9 (LeakyReLU)       (None, 8, 8, 512)    0           batch_normalization_7[0][0]
+__________________________________________________________________________________________________
+conv2d_11 (Conv2D)              (None, 4, 4, 512)    4194816     leaky_re_lu_9[0][0]
+__________________________________________________________________________________________________
+batch_normalization_8 (BatchNor (None, 4, 4, 512)    2048        conv2d_11[0][0]
+__________________________________________________________________________________________________
+leaky_re_lu_10 (LeakyReLU)      (None, 4, 4, 512)    0           batch_normalization_8[0][0]
+__________________________________________________________________________________________________
+conv2d_12 (Conv2D)              (None, 2, 2, 512)    4194816     leaky_re_lu_10[0][0]
+__________________________________________________________________________________________________
+batch_normalization_9 (BatchNor (None, 2, 2, 512)    2048        conv2d_12[0][0]
+__________________________________________________________________________________________________
+leaky_re_lu_11 (LeakyReLU)      (None, 2, 2, 512)    0           batch_normalization_9[0][0]
+__________________________________________________________________________________________________
+conv2d_13 (Conv2D)              (None, 1, 1, 512)    4194816     leaky_re_lu_11[0][0]
+__________________________________________________________________________________________________
+activation_1 (Activation)       (None, 1, 1, 512)    0           conv2d_13[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose (Conv2DTranspo (None, 2, 2, 512)    4194816     activation_1[0][0]
+__________________________________________________________________________________________________
+batch_normalization_10 (BatchNo (None, 2, 2, 512)    2048        conv2d_transpose[0][0]
+__________________________________________________________________________________________________
+dropout (Dropout)               (None, 2, 2, 512)    0           batch_normalization_10[0][0]
+__________________________________________________________________________________________________
+concatenate_1 (Concatenate)     (None, 2, 2, 1024)   0           dropout[0][0]
+                                                                 leaky_re_lu_11[0][0]
+__________________________________________________________________________________________________
+activation_2 (Activation)       (None, 2, 2, 1024)   0           concatenate_1[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose_1 (Conv2DTrans (None, 4, 4, 512)    8389120     activation_2[0][0]
+__________________________________________________________________________________________________
+batch_normalization_11 (BatchNo (None, 4, 4, 512)    2048        conv2d_transpose_1[0][0]
+__________________________________________________________________________________________________
+dropout_1 (Dropout)             (None, 4, 4, 512)    0           batch_normalization_11[0][0]
+__________________________________________________________________________________________________
+concatenate_2 (Concatenate)     (None, 4, 4, 1024)   0           dropout_1[0][0]
+                                                                 leaky_re_lu_10[0][0]
+__________________________________________________________________________________________________
+activation_3 (Activation)       (None, 4, 4, 1024)   0           concatenate_2[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose_2 (Conv2DTrans (None, 8, 8, 512)    8389120     activation_3[0][0]
+__________________________________________________________________________________________________
+batch_normalization_12 (BatchNo (None, 8, 8, 512)    2048        conv2d_transpose_2[0][0]
+__________________________________________________________________________________________________
+dropout_2 (Dropout)             (None, 8, 8, 512)    0           batch_normalization_12[0][0]
+__________________________________________________________________________________________________
+concatenate_3 (Concatenate)     (None, 8, 8, 1024)   0           dropout_2[0][0]
+                                                                 leaky_re_lu_9[0][0]
+__________________________________________________________________________________________________
+activation_4 (Activation)       (None, 8, 8, 1024)   0           concatenate_3[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose_3 (Conv2DTrans (None, 16, 16, 512)  8389120     activation_4[0][0]
+__________________________________________________________________________________________________
+batch_normalization_13 (BatchNo (None, 16, 16, 512)  2048        conv2d_transpose_3[0][0]
+__________________________________________________________________________________________________
+concatenate_4 (Concatenate)     (None, 16, 16, 1024) 0           batch_normalization_13[0][0]
+                                                                 leaky_re_lu_8[0][0]
+__________________________________________________________________________________________________
+activation_5 (Activation)       (None, 16, 16, 1024) 0           concatenate_4[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose_4 (Conv2DTrans (None, 32, 32, 256)  4194560     activation_5[0][0]
+__________________________________________________________________________________________________
+batch_normalization_14 (BatchNo (None, 32, 32, 256)  1024        conv2d_transpose_4[0][0]
+__________________________________________________________________________________________________
+concatenate_5 (Concatenate)     (None, 32, 32, 512)  0           batch_normalization_14[0][0]
+                                                                 leaky_re_lu_7[0][0]
+__________________________________________________________________________________________________
+activation_6 (Activation)       (None, 32, 32, 512)  0           concatenate_5[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose_5 (Conv2DTrans (None, 64, 64, 128)  1048704     activation_6[0][0]
+__________________________________________________________________________________________________
+batch_normalization_15 (BatchNo (None, 64, 64, 128)  512         conv2d_transpose_5[0][0]
+__________________________________________________________________________________________________
+concatenate_6 (Concatenate)     (None, 64, 64, 256)  0           batch_normalization_15[0][0]
+                                                                 leaky_re_lu_6[0][0]
+__________________________________________________________________________________________________
+activation_7 (Activation)       (None, 64, 64, 256)  0           concatenate_6[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose_6 (Conv2DTrans (None, 128, 128, 64) 262208      activation_7[0][0]
+__________________________________________________________________________________________________
+batch_normalization_16 (BatchNo (None, 128, 128, 64) 256         conv2d_transpose_6[0][0]
+__________________________________________________________________________________________________
+concatenate_7 (Concatenate)     (None, 128, 128, 128 0           batch_normalization_16[0][0]
+                                                                 leaky_re_lu_5[0][0]
+__________________________________________________________________________________________________
+activation_8 (Activation)       (None, 128, 128, 128 0           concatenate_7[0][0]
+__________________________________________________________________________________________________
+conv2d_transpose_7 (Conv2DTrans (None, 256, 256, 3)  6147        activation_8[0][0]
+__________________________________________________________________________________________________
+activation_9 (Activation)       (None, 256, 256, 3)  0           conv2d_transpose_7[0][0]
+==================================================================================================
+'''
